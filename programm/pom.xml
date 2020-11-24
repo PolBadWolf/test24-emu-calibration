@@ -51,4 +51,12 @@
         </plugins>
     </build>
 
+    <dependencies>
+        <dependency>
+            <groupId>ru.yandex.fixcolor.library</groupId>
+            <artifactId>swing_utils</artifactId>
+            <version>1.0</version>
+        </dependency>
+    </dependencies>
+
 </project>
