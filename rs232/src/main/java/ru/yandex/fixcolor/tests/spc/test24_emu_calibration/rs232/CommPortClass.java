@@ -6,8 +6,9 @@ import ru.yandex.fixcolor.library.controlsumma.ControlSumma;
 class CommPortClass implements CommPort {
 
     private SerialPort port = null;
-    private Thread threadRS = null;
     private CallBack callBack = null;
+    private Thread threadRS = null;
+    private boolean onCycle;
 
     static String[] getListPortsName() {
         SerialPort[] ports = SerialPort.getCommPorts();
@@ -73,8 +74,6 @@ class CommPortClass implements CommPort {
         port = null;
     }
 
-    private int onCycle;
-
     @Override
     public boolean ReciveStart() {
         if (port == null)   return false;
@@ -87,7 +86,7 @@ class CommPortClass implements CommPort {
 
     @Override
     public void ReciveStop() {
-        onCycle = -1;
+        onCycle = false;
 
         try {
             if (threadRS != null) {
@@ -102,142 +101,128 @@ class CommPortClass implements CommPort {
     }
 
     // ---------------------
-    final private int headBufferLenght  = 5;
-    final private int timeOutLenght     = 5;
+    //          режим работы
+    private static final int reciveMode_SYNHRO = 0;
+    private static final int reciveMode_LENGHT = 1;
+    private static final int reciveMode_BODY = 2;
+    private static final int reciveMode_OUT = 3;
+    private int reciveMode = reciveMode_SYNHRO;
     // ---------------------
-    private int timeOutSynhro = 1;
-    private boolean flagHead = true;
-    private byte[]  headBuffer = new byte[headBufferLenght];
-    private int lenghtRecive;
-    private int lenghtReciveSumm;
-    private byte crc;
+    //        SYNHRO
+    private static final int reciveHeader_lenght = 4;
+    private byte[] reciveHeader = new byte[reciveHeader_lenght];
+    private byte[] reciveHeader_in = new byte[1];
+    // ---------------------
+    //        LENGHT
+    private int reciveBody_lenght;
+    // ---------------------
+    private byte[] reciveBody_Buffer = new byte[256];
+    private int reciveBody_Index;
+    // ---------------------
+    int recive_num;
 
     private void runner() {
-        // flush
-        int num = 1;
-        byte[] bytes = new byte[1000];
-
-        while (num > 0) {
-            num = port.readBytes(bytes, bytes.length);
-        }
-
-        onCycle = 1;
-        while (onCycle >= 0) {
-            if (onCycle > 0) {
-                try {
+        onCycle = true;
+        reciveMode = reciveMode_SYNHRO;
+        recive_num = 0;
+        try {
+            while (onCycle) {
+                if (recive_num == 0) {
                     Thread.sleep(1);
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
                 }
-                if (timeOutSynhro > 1)    timeOutSynhro--;
-                if (timeOutSynhro == 1) {
-                    timeOutSynhro = 0;
-                    flagHead = true;
-                }
-            }
-
-            if (flagHead) {
-                for (int i = 0; i < headBufferLenght - 1; i++) {
-                    headBuffer[i] = headBuffer[i + 1];
-                }
-
-                try {
-                    num = port.readBytes(headBuffer, 1, headBufferLenght - 1);
-                } catch (Exception e) {
-                    e.printStackTrace();
-                    e = null;
-                }
-
-                if (num < 0) {
-                    onCycle = -1;
-                    continue;
-                }
-
-                if (num == 0) {
-                    if (onCycle < 0) continue;
-                    onCycle = 1;
-                    try {
-                        Thread.sleep(1);
-                    } catch (InterruptedException e) {
-                        e.printStackTrace();
-                    }
-                    continue;
-                }
-
-                if (onCycle < 0) continue;
-                onCycle = 0;
-
-                if (headBuffer[0] != (byte)0xe6)    continue;
-                if (headBuffer[1] != (byte)0x19)    continue;
-                if (headBuffer[2] != (byte)0x55)    continue;
-                if (headBuffer[3] != (byte)0xaa)    continue;
-
-                flagHead = true;
-                timeOutSynhro = timeOutLenght;
-                lenghtRecive = headBuffer[4] & 0x000000ff;
-                lenghtReciveSumm = 0;
-            }
-            else {
-                continue;
-            }
-
-            while (lenghtReciveSumm < lenghtRecive) {
-                num = port.readBytes(bytes, lenghtRecive - lenghtReciveSumm, lenghtReciveSumm);
-
-                if (num < 0) {
-                    onCycle = -1;
-                    continue;
-                }
-
-                if (num == 0) {
-                    if (onCycle < 0) continue;
-                    onCycle = 1;
-                    continue;
-                }
-
-                if (onCycle < 0) continue;
-                onCycle = 0;
-                lenghtReciveSumm += num;
-            }
-
-            if (lenghtRecive > 1) {
-                crc = ControlSumma.crc8(bytes, lenghtRecive - 1);
-                if (crc == bytes[lenghtRecive - 1]) {
-                    callBack.reciveRsPush(bytes, lenghtRecive - 1);
+                switch (reciveMode) {
+                    case reciveMode_SYNHRO:
+                        recive_synhro();
+                        break;
+                    case reciveMode_LENGHT:
+                        recive_lenght();
+                        break;
+                    case reciveMode_BODY:
+                        recive_body();
+                        break;
+                    case reciveMode_OUT:
+                        recive_out();
+                        break;
+                    default:
+                        throw new IllegalStateException("Unexpected value: " + reciveMode);
                 }
             }
-
-            flagHead = true;
+        } catch (Exception e) {
+            e.printStackTrace();
         }
     }
 
+    private void recive_synhro() throws Exception {
+        recive_num = port.readBytes(reciveHeader_in, 1);
+        if (recive_num == 0) return;
+        // shift
+        for (int i = 0; i < reciveHeader_lenght - 1; i++) {
+            reciveHeader[i] = reciveHeader[i + 1];
+        }
+        reciveHeader[reciveHeader_lenght - 1] = reciveHeader_in[0];
+        //
+        if (reciveHeader[0] != 0xe6) return;
+        if (reciveHeader[0] != 0x19) return;
+        if (reciveHeader[0] != 0x55) return;
+        if (reciveHeader[0] != 0xaa) return;
+        reciveMode = reciveMode_LENGHT;
+    }
+
+    private void recive_lenght() throws Exception {
+        recive_num = port.readBytes(reciveHeader_in, 1);
+        if (recive_num == 0) return;
+        reciveBody_lenght = reciveHeader_in[0];
+        reciveBody_Index = 0;
+        reciveMode = reciveMode_BODY;
+    }
+
+    private void recive_body() throws Exception {
+        int lenght = reciveBody_lenght - reciveBody_Index;
+        recive_num = port.readBytes(reciveBody_Buffer, lenght, reciveBody_Index);
+        if (recive_num == 0) return;
+        reciveBody_Index += recive_num;
+        if (reciveBody_Index > reciveBody_lenght) throw new Exception("переполнение буфера приема");
+        if (reciveBody_Index < reciveBody_lenght) return;
+        reciveMode = reciveMode_OUT;
+    }
+
+    private void recive_out() {
+        if (ControlSumma.crc8(reciveBody_Buffer, reciveBody_lenght - 1) == reciveBody_Buffer[reciveBody_lenght - 1]) {
+            if (callBack != null) {
+                callBack.reciveRsPush(reciveBody_Buffer, reciveBody_lenght);
+            }
+        }
+        reciveMode = reciveMode_SYNHRO;
+    }
+
+
     @Override
     public void sendMessageStopAuto() {
-        byte[] header = {
-                // заголовок
-                (byte)0xe6
-                ,(byte)0x19
-                ,(byte)0x55
-                ,(byte)0xaa
-        };
-        byte[] body = {
-                // код передачи
-                (byte)0x80
-        };
-        port.writeBytes(headBuffer, header.length);
-        // длина передачи
-        {
-            byte[] dl = new byte[1];
-            dl[0] = (byte) (body.length + (1 & 0x000000ff));
-            port.writeBytes(dl, dl.length);
-        }
-        // тело передачи
-        port.writeBytes(body, body.length);
-        // контрольная сумма
-        {
-            byte[] cs = new byte[1];
-            cs[0] = ControlSumma.crc8(body, body.length);
-            port.writeBytes(cs, cs.length);
-        }
+//        byte[] header = {
+//                // заголовок
+//                (byte)0xe6
+//                ,(byte)0x19
+//                ,(byte)0x55
+//                ,(byte)0xaa
+//        };
+//        byte[] body = {
+//                // код передачи
+//                (byte)0x80
+//        };
+//        port.writeBytes(headBuffer, header.length);
+//        // длина передачи
+//        {
+//            byte[] dl = new byte[1];
+//            dl[0] = (byte) (body.length + (1 & 0x000000ff));
+//            port.writeBytes(dl, dl.length);
+//        }
+//        // тело передачи
+//        port.writeBytes(body, body.length);
+//        // контрольная сумма
+//        {
+//            byte[] cs = new byte[1];
+//            cs[0] = ControlSumma.crc8(body, body.length);
+//            port.writeBytes(cs, cs.length);
+//        }
     }
 }

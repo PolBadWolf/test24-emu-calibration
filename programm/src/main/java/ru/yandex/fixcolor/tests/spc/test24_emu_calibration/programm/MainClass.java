@@ -2,11 +2,15 @@ package ru.yandex.fixcolor.tests.spc.test24_emu_calibration.programm;
 
 import ru.yandex.fixcolor.library.swing.components.modifed.MLabel;
 import ru.yandex.fixcolor.library.swing.utils.CreateComponents;
+import ru.yandex.fixcolor.tests.spc.test24_emu_calibration.rs232.BAUD;
+import ru.yandex.fixcolor.tests.spc.test24_emu_calibration.rs232.CommPort;
 
 import javax.swing.*;
 import javax.swing.event.ChangeEvent;
 import java.awt.*;
 import java.awt.event.ActionEvent;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 
 public class MainClass {
     public static void main(String[] args) {
@@ -15,6 +19,9 @@ public class MainClass {
     }
     private void start() {
         init_components();
+        commPort = CommPort.init();
+        CommPort.PortStat portStat = commPort.open(this::reciveFromRs, "com6", BAUD.baud57600);
+        commPort.ReciveStart();
     }
     private JFrame frame;
     // ---
@@ -24,7 +31,7 @@ public class MainClass {
     private JTextField ves_render_text;
     private JSlider ves_slider;
     private JLabel ves_slider_label;
-    double ves_multiply = 1.0;
+    double ves_multiply = 0.489;
     double ves_offset = 0;
     int ves_adc;
     // ---
@@ -34,9 +41,18 @@ public class MainClass {
     private JTextField dist_render_text;
     private JSlider dist_slider;
     private JLabel dist_slider_label;
-    double dist_multiply = 1.0;
+    double dist_multiply = 0.782;
     double dist_offset = 0;
     int dist_adc;
+    // ---
+    private JPanel panelSwich;
+    private ButtonGroup emu_buttonGroup;
+    private JRadioButton emu_buttonStop;
+    private JRadioButton emu_buttonStartOne;
+    private JRadioButton emu_buttonStartMulti;
+    // ---
+    private JTextField statusText;
+    private CommPort commPort;
     // ---
     private void init_components() {
         frame = CreateComponents.getFrame("calibration", 800, 600,
@@ -44,11 +60,17 @@ public class MainClass {
         //
         init_components_ves(frame);
         init_components_dist(frame);
+        init_components_emu(frame);
+        statusText = CreateComponents.getTextField(CreateComponents.TEXTFIELD, new Font("Times New Roman", Font.PLAIN, 16),
+                260, 390, 140, 30,
+                null, null, true, true, false);
+        frame.add(statusText);
         //
         //
-        frame.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
         frame.pack();
         frame.setVisible(true);
+        frame.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
+        frame.addWindowListener(new FrameStop());
     }
 
     private void init_components_ves(Container parent) {
@@ -158,5 +180,37 @@ public class MainClass {
         }
         double zn = dist_adc * dist_multiply + dist_offset;
         dist_render_text.setText(String.format("%8.3f",zn));
+    }
+    private void init_components_emu(Container parent) {
+        panelSwich = new JPanel(new GridLayout(0, 1, 0, 5));
+        panelSwich.setBounds(50, 380, 200, 120);
+        panelSwich.setBorder(BorderFactory.createTitledBorder("переключатель на пульту"));
+        emu_buttonGroup = new ButtonGroup();
+        emu_buttonStop = new JRadioButton("Стоп");
+        emu_buttonStartOne = new JRadioButton("Однократно");
+        emu_buttonStartMulti = new JRadioButton("Многократно");
+        // --
+        emu_buttonGroup.add(emu_buttonStop);
+        emu_buttonGroup.add(emu_buttonStartOne);
+        emu_buttonGroup.add(emu_buttonStartMulti);
+        emu_buttonStop.setSelected(true);
+        panelSwich.add(emu_buttonStop);
+        panelSwich.add(emu_buttonStartOne);
+        panelSwich.add(emu_buttonStartMulti);
+        // --
+        parent.add(panelSwich);
+    }
+
+    private void reciveFromRs(byte[] bytes, int lenght) {
+        System.out.println(lenght);
+    }
+
+    private class FrameStop extends WindowAdapter {
+        @Override
+        public void windowClosing(WindowEvent e) {
+            super.windowClosing(e);
+            commPort.ReciveStop();
+            commPort.close();
+        }
     }
 }
