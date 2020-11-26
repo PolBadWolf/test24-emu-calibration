@@ -36,4 +36,12 @@
         </plugins>
     </build>
 
+    <dependencies>
+        <dependency>
+            <groupId>ru.yandex.fixcolor.library</groupId>
+            <artifactId>ConverterDigit</artifactId>
+            <version>1.0</version>
+        </dependency>
+    </dependencies>
+
 </project>

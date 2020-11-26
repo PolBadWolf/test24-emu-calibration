@@ -2,6 +2,7 @@ package ru.yandex.fixcolor.tests.spc.test24_emu_calibration.rs232;
 
 import com.fazecast.jSerialComm.SerialPort;
 import ru.yandex.fixcolor.library.controlsumma.ControlSumma;
+import ru.yandex.fixcolor.library.converterdigit.ConvertDigit;
 
 class CommPortClass implements CommPort {
 
@@ -54,7 +55,7 @@ class CommPortClass implements CommPort {
         port = SerialPort.getCommPort(portNameCase);
         port.setComPortParameters(baud.getBaud(), 8, SerialPort.ONE_STOP_BIT, SerialPort.NO_PARITY);
         port.setFlowControl(SerialPort.FLOW_CONTROL_DISABLED);
-        port.setComPortTimeouts(SerialPort.TIMEOUT_NONBLOCKING, 1000, 0);
+        port.setComPortTimeouts(SerialPort.TIMEOUT_NONBLOCKING, 1, 10);
 
         if (port.openPort()) {
             this.callBack = callBack;
@@ -78,7 +79,8 @@ class CommPortClass implements CommPort {
     public boolean ReciveStart() {
         if (port == null)   return false;
         if (!port.isOpen()) return false;
-
+        while (port.readBytes(reciveBody_Buffer, reciveBody_Buffer.length) > 0);
+        recive_TimeOut = 0;
         threadRS = new Thread(this::runner);
         threadRS.start();
         return false;
@@ -107,6 +109,8 @@ class CommPortClass implements CommPort {
     private static final int reciveMode_BODY = 2;
     private static final int reciveMode_OUT = 3;
     private int reciveMode = reciveMode_SYNHRO;
+    private int recive_TimeOut;
+    private static final int recive_TimeOutSet = 5;
     // ---------------------
     //        SYNHRO
     private static final int reciveHeader_lenght = 4;
@@ -127,9 +131,9 @@ class CommPortClass implements CommPort {
         recive_num = 0;
         try {
             while (onCycle) {
-                if (recive_num == 0) {
-                    Thread.sleep(1);
-                }
+                if (recive_num == 0) Thread.sleep(1);
+                if (recive_TimeOut == 1) reciveMode = reciveMode_SYNHRO;
+                if (recive_TimeOut > 0) recive_TimeOut--;
                 switch (reciveMode) {
                     case reciveMode_SYNHRO:
                         recive_synhro();
@@ -151,7 +155,6 @@ class CommPortClass implements CommPort {
             e.printStackTrace();
         }
     }
-
     private void recive_synhro() throws Exception {
         recive_num = port.readBytes(reciveHeader_in, 1);
         if (recive_num == 0) return;
@@ -161,21 +164,20 @@ class CommPortClass implements CommPort {
         }
         reciveHeader[reciveHeader_lenght - 1] = reciveHeader_in[0];
         //
-        if (reciveHeader[0] != 0xe6) return;
-        if (reciveHeader[0] != 0x19) return;
-        if (reciveHeader[0] != 0x55) return;
-        if (reciveHeader[0] != 0xaa) return;
+        if ((reciveHeader[0] & 0xff) != 0xe6) return;
+        if ((reciveHeader[1] & 0xff) != 0x19) return;
+        if ((reciveHeader[2] & 0xff) != 0x55) return;
+        if ((reciveHeader[3] & 0xff) != 0xaa) return;
         reciveMode = reciveMode_LENGHT;
+        recive_TimeOut = recive_TimeOutSet;
     }
-
     private void recive_lenght() throws Exception {
         recive_num = port.readBytes(reciveHeader_in, 1);
         if (recive_num == 0) return;
-        reciveBody_lenght = reciveHeader_in[0];
+        reciveBody_lenght = reciveHeader_in[0] & 0xff;
         reciveBody_Index = 0;
         reciveMode = reciveMode_BODY;
     }
-
     private void recive_body() throws Exception {
         int lenght = reciveBody_lenght - reciveBody_Index;
         recive_num = port.readBytes(reciveBody_Buffer, lenght, reciveBody_Index);
@@ -185,44 +187,50 @@ class CommPortClass implements CommPort {
         if (reciveBody_Index < reciveBody_lenght) return;
         reciveMode = reciveMode_OUT;
     }
-
     private void recive_out() {
         if (ControlSumma.crc8(reciveBody_Buffer, reciveBody_lenght - 1) == reciveBody_Buffer[reciveBody_lenght - 1]) {
             if (callBack != null) {
-                callBack.reciveRsPush(reciveBody_Buffer, reciveBody_lenght);
+                callBack.reciveRsPush(reciveBody_Buffer, reciveBody_lenght - 1);
             }
         }
         reciveMode = reciveMode_SYNHRO;
     }
-
-
+    // ************************************************************************
+    private static final byte[] header = {
+            (byte)0xe6,
+            (byte)0x19,
+            (byte)0x55,
+            (byte)0xaa
+    };
+    private void send_header() throws Exception {
+        int l = port.writeBytes(header, header.length);
+        if (l < 1) throw new Exception("ошибка отправки по comm port");
+    }
+    private byte[] send_lenghtVar = new byte[1];
+    private void send_lenght(byte[] body) throws Exception {
+        send_lenghtVar[0] = (byte) ((body.length + 1) & 0xff);
+        int l = port.writeBytes(send_lenghtVar, 1);
+        if (l < 1) throw new Exception("ошибка отправки по comm port");
+    }
+    // ---------------------
+    private final byte[] sendDataMeasuredBody = new byte[9];
     @Override
-    public void sendMessageStopAuto() {
-//        byte[] header = {
-//                // заголовок
-//                (byte)0xe6
-//                ,(byte)0x19
-//                ,(byte)0x55
-//                ,(byte)0xaa
-//        };
-//        byte[] body = {
-//                // код передачи
-//                (byte)0x80
-//        };
-//        port.writeBytes(headBuffer, header.length);
-//        // длина передачи
-//        {
-//            byte[] dl = new byte[1];
-//            dl[0] = (byte) (body.length + (1 & 0x000000ff));
-//            port.writeBytes(dl, dl.length);
-//        }
-//        // тело передачи
-//        port.writeBytes(body, body.length);
-//        // контрольная сумма
-//        {
-//            byte[] cs = new byte[1];
-//            cs[0] = ControlSumma.crc8(body, body.length);
-//            port.writeBytes(cs, cs.length);
-//        }
+    public void sendDataMeasured(byte sendCode, long tik, int distance, int weight) throws Exception {
+        // code (1)
+        sendDataMeasuredBody[0] = sendCode;
+        // tik (4)
+        ConvertDigit.int2bytes(tik, sendDataMeasuredBody, 1);
+        // distance (2)
+        ConvertDigit.int2bytes(distance, sendDataMeasuredBody, 5, 2);
+        // weight (2)
+        ConvertDigit.int2bytes(weight, sendDataMeasuredBody, 7, 2);
+        send_header();
+        send_lenght(sendDataMeasuredBody);
+        port.writeBytes(sendDataMeasuredBody, sendDataMeasuredBody.length);
+        // контрольная сумма
+        byte[] cs = new byte[1];
+        cs[0] = ControlSumma.crc8(sendDataMeasuredBody, sendDataMeasuredBody.length);
+        int l = port.writeBytes(cs, cs.length);
+        if (l < cs.length) throw new Exception("ошибка отправки по comm port");
     }
 }
