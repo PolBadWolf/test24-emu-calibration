@@ -11,10 +11,12 @@ import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.util.Locale;
 
 public class MainClass {
     public static MainClass main;
     public static void main(String[] args) {
+        Locale.setDefault(Locale.US);
         System.out.println("start");
         new MainClass().start();
     }
