@@ -13,14 +13,20 @@ import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 
 public class MainClass {
+    public static MainClass main;
     public static void main(String[] args) {
         System.out.println("start");
         new MainClass().start();
     }
     private void start() {
+        main = this;
+        flagCalibration = false;
+        timerMode = new TimerCount(this::timerMode_execute, 100, 20, "timer mode");
+        timerCalibration = new TimerCount(this::timerCalibration_execute, 20, 10, "timer calibration");
         init_components();
         commPort = CommPort.init();
         CommPort.PortStat portStat = commPort.open(this::reciveFromRs, "com6", BAUD.baud57600);
+        timerMode.pusk();
         commPort.ReciveStart();
     }
     private JFrame frame;
@@ -54,6 +60,10 @@ public class MainClass {
     private JTextField statusText;
     private CommPort commPort;
     // ---
+    private TimerCount timerMode;
+    private boolean flagCalibration;
+    private TimerCount timerCalibration;
+    // ---------------------
     private void init_components() {
         frame = CreateComponents.getFrame("calibration", 800, 600,
                 false, null, null);
@@ -75,7 +85,7 @@ public class MainClass {
 
     private void init_components_ves(Container parent) {
         ves_slider = new JSlider( JSlider.HORIZONTAL, 0, 1023, 512);
-        ves_slider.setBounds(25, 100, 750, 50);
+        ves_slider.setBounds(25, 300, 750, 50);
         ves_slider.setPaintLabels(true);
         ves_slider.setPaintTicks(true);
         ves_slider.setMajorTickSpacing(50);
@@ -83,18 +93,18 @@ public class MainClass {
         ves_slider.addChangeListener(this::renderVes);
         ves_slider_label = CreateComponents.getLabel(parent, "",
                 new Font("Times New Roman", Font.PLAIN, 16),
-                150, 85, true, true, MLabel.CENTER);
+                150, 285, true, true, MLabel.CENTER);
         ves_multiply_text = CreateComponents.getTextField(CreateComponents.TEXTFIELD,
                 new Font("Times New Roman", Font.PLAIN, 18),
-                150, 10, 100, 30,
+                150, 210, 100, 30,
                 null, this::cVes, true, true);
         ves_offset_text = CreateComponents.getTextField(CreateComponents.TEXTFIELD,
                 new Font("Times New Roman", Font.PLAIN, 18),
-                150, 55, 100, 30,
+                150, 255, 100, 30,
                 null, this::cVes, true, true);
         ves_render_text = CreateComponents.getTextField(CreateComponents.TEXTFIELD,
                 new Font("Times New Roman", Font.PLAIN, 32),
-                300, 15, 150, 60,
+                300, 215, 150, 60,
                 null, null, true, true, false);
         parent.add(ves_slider);
         parent.add(ves_slider_label);
@@ -129,7 +139,7 @@ public class MainClass {
     }
     private void init_components_dist(Container parent) {
         dist_slider = new JSlider( JSlider.HORIZONTAL, 0, 1023, 512);
-        dist_slider.setBounds(25, 300, 750, 50);
+        dist_slider.setBounds(25, 100, 750, 50);
         dist_slider.setPaintLabels(true);
         dist_slider.setPaintTicks(true);
         dist_slider.setMajorTickSpacing(50);
@@ -137,18 +147,18 @@ public class MainClass {
         dist_slider.addChangeListener(this::renderDist);
         dist_slider_label = CreateComponents.getLabel(parent, "",
                 new Font("Times New Roman", Font.PLAIN, 16),
-                150, 285, true, true, MLabel.CENTER);
+                150, 85, true, true, MLabel.CENTER);
         dist_multiply_text = CreateComponents.getTextField(CreateComponents.TEXTFIELD,
                 new Font("Times New Roman", Font.PLAIN, 18),
-                150, 210, 100, 30,
+                150, 10, 100, 30,
                 null, this::cDist, true, true);
         dist_offset_text = CreateComponents.getTextField(CreateComponents.TEXTFIELD,
                 new Font("Times New Roman", Font.PLAIN, 18),
-                150, 255, 100, 30,
+                150, 55, 100, 30,
                 null, this::cDist, true, true);
         dist_render_text = CreateComponents.getTextField(CreateComponents.TEXTFIELD,
                 new Font("Times New Roman", Font.PLAIN, 32),
-                300, 215, 150, 60,
+                300, 15, 150, 60,
                 null, null, true, true, false);
         parent.add(dist_slider);
         parent.add(dist_slider_label);
@@ -202,7 +212,12 @@ public class MainClass {
     }
 
     private void reciveFromRs(byte[] bytes, int lenght) {
-        System.out.println(lenght);
+        if ((bytes[0] & 0xff) == 0x81) {
+            if (timerMode != null) {
+                timerMode.updateCount();
+                timerCalibration.updateCount();
+            }
+        }
     }
 
     private class FrameStop extends WindowAdapter {
@@ -211,6 +226,34 @@ public class MainClass {
             super.windowClosing(e);
             commPort.ReciveStop();
             commPort.close();
+            timerCalibration.close();
+            timerMode.close();
+        }
+    }
+    private void timerMode_execute(boolean flag) {
+        if (flag && !flagCalibration) {
+            statusText.setText("Калибровка");
+            System.out.println("start calib");
+            if (timerCalibration != null) {
+                timerCalibration.updateCount();
+                timerCalibration.pusk();
+            }
+        }
+        if (!flag && flagCalibration) {
+            statusText.setText("");
+            if (timerCalibration != null) timerCalibration.stop();
+        }
+        flagCalibration = flag;
+    }
+    private void timerCalibration_execute(boolean flag) {
+        if (timerCalibration != null) {
+            try {
+                if (flag) {
+                    timerCalibration.updateCount();
+                    commPort.sendDataMeasured((byte) 17, 0xffffffff, dist_adc, ves_adc);
+                }
+            } catch (Exception exception) {
+            }
         }
     }
 }
