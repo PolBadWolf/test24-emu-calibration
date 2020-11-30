@@ -9,6 +9,7 @@ import javax.swing.*;
 import javax.swing.event.ChangeEvent;
 import java.awt.*;
 import java.awt.event.ActionEvent;
+import java.awt.event.ItemEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.util.Locale;
@@ -23,12 +24,14 @@ public class MainClass {
     private void start() {
         main = this;
         flagCalibration = false;
+        timer = new Timer(this::timer_execute);
         timerMode = new TimerCount(this::timerMode_execute, 100, 20, "timer mode");
         timerCalibration = new TimerCount(this::timerCalibration_execute, 20, 10, "timer calibration");
         init_components();
         commPort = CommPort.init();
         CommPort.PortStat portStat = commPort.open(this::reciveFromRs, "com6", BAUD.baud57600);
         timerMode.pusk();
+        timer.start();
         commPort.ReciveStart();
     }
     private JFrame frame;
@@ -62,6 +65,7 @@ public class MainClass {
     private JTextField statusText;
     private CommPort commPort;
     // ---
+    private Timer timer;
     private TimerCount timerMode;
     private boolean flagCalibration;
     private TimerCount timerCalibration;
@@ -83,6 +87,17 @@ public class MainClass {
         frame.setVisible(true);
         frame.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
         frame.addWindowListener(new FrameStop());
+    }
+
+    private class FrameStop extends WindowAdapter {
+        @Override
+        public void windowClosing(WindowEvent e) {
+            super.windowClosing(e);
+            commPort.ReciveStop();
+            commPort.close();
+            timer.close();
+
+        }
     }
 
     private void init_components_ves(Container parent) {
@@ -211,7 +226,24 @@ public class MainClass {
         panelSwich.add(emu_buttonStartMulti);
         // --
         parent.add(panelSwich);
+        emu_buttonStop.addItemListener(this::callButtonStop);
+        emu_buttonStartOne.addItemListener(this::callButtonOne);
+        emu_buttonStartMulti.addItemListener(this::callBittonMulti);
     }
+
+    private void callButtonStop(ItemEvent itemEvent) {
+        if (itemEvent.getStateChange() == ItemEvent.DESELECTED) return;
+        System.out.println(itemEvent.getStateChange());
+    }
+
+    private void callButtonOne(ItemEvent itemEvent) {
+        if (itemEvent.getStateChange() == ItemEvent.DESELECTED) return;
+    }
+
+    private void callBittonMulti(ItemEvent itemEvent) {
+        if (itemEvent.getStateChange() == ItemEvent.DESELECTED) return;
+    }
+
 
     private void reciveFromRs(byte[] bytes, int lenght) {
         if ((bytes[0] & 0xff) == 0x81) {
@@ -222,16 +254,13 @@ public class MainClass {
         }
     }
 
-    private class FrameStop extends WindowAdapter {
-        @Override
-        public void windowClosing(WindowEvent e) {
-            super.windowClosing(e);
-            commPort.ReciveStop();
-            commPort.close();
-            timerCalibration.close();
-            timerMode.close();
-        }
+
+    private void timer_execute() {
+        timerMode.timer_execute();
+        timerCalibration.timer_execute();
+        if (flagCalibration) return;
     }
+
     private void timerMode_execute(boolean flag) {
         if (flag && !flagCalibration) {
             statusText.setText("Калибровка");
