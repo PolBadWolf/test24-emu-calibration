@@ -7,6 +7,9 @@ import ru.yandex.fixcolor.tests.spc.test24_emu_calibration.rs232.CommPort;
 
 import javax.swing.*;
 import javax.swing.event.ChangeEvent;
+import javax.swing.text.AttributeSet;
+import javax.swing.text.BadLocationException;
+import javax.swing.text.DocumentFilter;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ItemEvent;
@@ -46,7 +49,7 @@ public class MainClass {
     private JTextField ves_render_text;
     private JSlider ves_slider;
     private JLabel ves_slider_label;
-    double ves_multiply = 0.489;
+    double ves_multiply = 1.5;
     double ves_offset = 0;
     int ves_adc;
     // ---
@@ -56,7 +59,7 @@ public class MainClass {
     private JTextField dist_render_text;
     private JSlider dist_slider;
     private JLabel dist_slider_label;
-    double dist_multiply = 0.782;
+    double dist_multiply = 2.0;
     double dist_offset = 0;
     int dist_adc;
     // ---
@@ -92,6 +95,9 @@ public class MainClass {
     private JTextField distance_delay_name;
     public JTextField distance_delay_time;
     public JTextField distance_delay_distance;
+    // ---
+    public JTextField weightPusherText;
+    public JTextField forcePusherText;
     // ---
     private Timer timer;
     private Work work;
@@ -264,6 +270,25 @@ public class MainClass {
 
     private void init_components_dist_uk(Container parent) {
         {
+            CreateComponents.getLabel(parent, "time", new Font("Times New Roman", Font.PLAIN, 14),
+                    300, 435, true, true, MLabel.RIGHT);
+            CreateComponents.getLabel(parent, "dist", new Font("Times New Roman", Font.PLAIN, 14),
+                    300, 475, true, true, MLabel.RIGHT);
+            //
+            weightPusherText = CreateComponents.getTextField(CreateComponents.TEXTFIELD, new Font("Times New Roman", Font.PLAIN, 14),
+                    200, 430, 70, 40, new FilterDigital(), null, true, true);
+            weightPusherText.setBorder(BorderFactory.createTitledBorder(BorderFactory.createLineBorder(new Color(0, 0, 0)), "weight", 0, 0,
+                    new Font("Times New Roman", Font.PLAIN, 12)));
+            weightPusherText.setText("30");
+            parent.add(weightPusherText);
+            forcePusherText = CreateComponents.getTextField(CreateComponents.TEXTFIELD, new Font("Times New Roman", Font.PLAIN, 14),
+                    200, 470, 70, 40, new FilterDigital(), null, true, true);
+            forcePusherText.setBorder(BorderFactory.createTitledBorder(BorderFactory.createLineBorder(new Color(0, 0, 0)), "force", 0, 0,
+                    new Font("Times New Roman", Font.PLAIN, 12)));
+            forcePusherText.setText("300");
+            parent.add(forcePusherText);
+        }
+        {
             distance_begin_name = CreateComponents.getTextField(CreateComponents.TEXTFIELD, new Font("Times New Roman", Font.PLAIN, 14),
                     330, 390, 80, 30, null, null, true, true, false);
             distance_begin_name.setText("начало");
@@ -366,11 +391,19 @@ public class MainClass {
 
 
     private void reciveFromRs(byte[] bytes, int lenght) {
-        if ((bytes[0] & 0xff) == 0x81) {
-            if (timerMode != null) {
-                timerMode.updateCount();
-                timerCalibration.updateCount();
-            }
+        int b = bytes[0] & 0xff;
+        switch (b) {
+            case 0x81:
+                if (timerMode != null) {
+                    timerMode.updateCount();
+                    timerCalibration.updateCount();
+                }
+                break;
+            case 0x80:
+                work.setFlagStopFromPc();
+                break;
+            default:
+                throw new IllegalStateException("Unexpected value: " + b);
         }
     }
 
@@ -403,10 +436,22 @@ public class MainClass {
             try {
                 if (flag) {
                     timerCalibration.updateCount();
-                    commPort.sendDataMeasured((byte) TypePack.CALIBR_DATA, 0xffffffff, dist_adc, ves_adc);
+                    commPort.sendDataMeasured((byte) TypePack.CALIBR_DATA, 0xffffffff, dist_adc & 0x03ff , ves_adc & 0x03ff);
                 }
             } catch (Exception exception) {
             }
+        }
+    }
+
+    private class FilterDigital extends DocumentFilter {
+        @Override
+        public void replace(FilterBypass fb, int offset, int length, String text, AttributeSet attrs) throws BadLocationException {
+            if (text.length() == 1) {
+                int x = text.codePointAt(0);
+                if (x < '0') return;
+                if (x > '9') return;
+            }
+            super.replace(fb, offset, length, text, attrs);
         }
     }
 }

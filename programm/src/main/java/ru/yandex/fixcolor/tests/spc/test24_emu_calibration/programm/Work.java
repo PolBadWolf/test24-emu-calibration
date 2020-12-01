@@ -21,12 +21,15 @@ public class Work {
     private int alrmTimeOut;
     private static final int alrmTimeOutMax = 2_500;
     private int cycleWork;
-    private static final int cycleWorkMax = 3;
+    private static final int cycleWorkMax = 15;
     // --------------------
     private static final double g_std = 9.8;
     private double g_up;
     private double g_dn;
     private static final double distanceForce = 100.0;
+    // --------------------
+    private double forcePusher;
+    private double weightPusher;
     // --------------------
     // флаг стоп из компьютера
     private boolean flagStopFromPc;
@@ -36,6 +39,8 @@ public class Work {
         mode = WorkMode.manual_stop;
         engine = new Engine(new EngineCallBack());
         this.commPort = commPort;
+        weightPusher = 20.0;
+        forcePusher = 350.0;
         loadVars(true);
     }
 
@@ -144,6 +149,9 @@ public class Work {
         engine.setData(dataEmu.toArray(new DataEmuUnit[0]));
         g_up = g_std + renderAcceleration(main.distance_begin_distance.getText(), main.distance_start_distance.getText(), main.distance_start_time.getText());
         g_dn = g_std - renderAcceleration(main.distance_shelf_distance.getText(), main.distance_back_distance.getText(),  main.distance_back_time.getText());
+        //
+        weightPusher = Double.parseDouble(main.weightPusherText.getText());
+        forcePusher = Double.parseDouble(main.forcePusherText.getText());;
     }
 
     private double renderAcceleration(String dist1Text, String dist2Text, String timeText) {
@@ -159,15 +167,18 @@ public class Work {
         main.statusText.setText(workStatus + ":" + cycleWork);
         System.out.println("work status: " + workStatus + ":" + cycleWork);
     }
+    private void sendStatus(int typePack, int currentTime) {
+        try {
+            commPort.sendStatus(typePack, currentTime);
+        } catch (Exception exception) {
+            exception.printStackTrace();
+        }
+    }
     // -----------------------------------
     private void mAlarm_set() {
         mode = WorkMode.manual_alarm;
         outWorkStatus("mAlarm");
-        try {
-            commPort.sendStatus(TypePack.MANUAL_ALARM, engine.getCurrentTime());
-        } catch (Exception exception) {
-            exception.printStackTrace();
-        }
+        sendStatus(TypePack.MANUAL_ALARM, engine.getCurrentTime());
         alrmTimeOut = alrmTimeOutMax;
     }
 
@@ -180,11 +191,7 @@ public class Work {
     private void mBack_set() {
         mode = WorkMode.manual_back;
         outWorkStatus("mBack");
-        try {
-            commPort.sendStatus(TypePack.MANUAL_BACK, engine.getCurrentTime());
-        } catch (Exception exception) {
-            exception.printStackTrace();
-        }
+        sendStatus(TypePack.MANUAL_BACK, engine.getCurrentTime());
         // отключить двигатель
         engine.off();
     }
@@ -195,11 +202,7 @@ public class Work {
     private void mStop_set() {
         mode = WorkMode.manual_stop;
         outWorkStatus("stop");
-        try {
-            commPort.sendStatus(TypePack.MANUAL_STOP, engine.getCurrentTime());
-        } catch (Exception exception) {
-            exception.printStackTrace();
-        }
+        sendStatus(TypePack.MANUAL_STOP, engine.getCurrentTime());
         // отключить двигатель
         engine.off();
         // сброc счетчика циклов
@@ -211,11 +214,8 @@ public class Work {
         outWorkStatus("mPusk");
         // загрузка переменных
         loadVars(true);
-        try {
-            commPort.sendStatus(TypePack.MANUAL_FORWARD, engine.getCurrentTime());
-        } catch (Exception exception) {
-            exception.printStackTrace();
-        }
+        sendStatus(TypePack.MANUAL_FORWARD, engine.getCurrentTime());
+        sendDataWeight(engine.getCurrentTime(), (int) weightPusher);
         // флаг остановки по команде из компьютера
         flagStopFromPc = false;
         //
@@ -243,17 +243,14 @@ public class Work {
     private void mShelf_set() {
         mode = WorkMode.manual_shelf;
         outWorkStatus("mShelf");
-        try {
-            commPort.sendStatus(TypePack.MANUAL_SHELF, engine.getCurrentTime());
-        } catch (Exception exception) {
-            exception.printStackTrace();
-        }
+        sendStatus(TypePack.MANUAL_SHELF, engine.getCurrentTime());
         //
     }
     // -----------------------------------
     private void cAlarm_set() {
         mode = WorkMode.cycle_alarm;
         outWorkStatus("cAlarm");
+        sendStatus(TypePack.CYCLE_ALARM, engine.getCurrentTime());
         alrmTimeOut = alrmTimeOutMax;
     }
     private void cAlarm_none() {
@@ -264,6 +261,7 @@ public class Work {
     private void cBack_set() {
         mode = WorkMode.cycle_back;
         outWorkStatus("cBack");
+        sendStatus(TypePack.CYCLE_BACK, engine.getCurrentTime());
         // отключить двигатель
         engine.off();
     }
@@ -274,6 +272,7 @@ public class Work {
     private void cDelay_set() {
         mode = WorkMode.cycle_delay;
         outWorkStatus("cDelay");
+        sendStatus(TypePack.CYCLE_DELAY, engine.getCurrentTime());
         // отключить двигатель
         engine.off();
         //
@@ -282,8 +281,10 @@ public class Work {
             setMode(WorkMode.manual_stop);
         }
     }
-    // заглушка
     private void cDelay_none() {
+        if (flagStopFromPc) {
+            setMode(WorkMode.manual_stop);
+        }
     }
     // -----------------------------------
     private void cPusk_set() {
@@ -292,6 +293,8 @@ public class Work {
         outWorkStatus("cPusk");
         // загрузка переменных
         loadVars(false);
+        sendStatus(TypePack.CYCLE_FORWARD, engine.getCurrentTime());
+        sendDataWeight(engine.getCurrentTime(), (int) weightPusher);
         // флаг остановки по команде из компьютера
         flagStopFromPc = false;
         //
@@ -319,12 +322,25 @@ public class Work {
     private void cShelf_set() {
         mode = WorkMode.cycle_shelf;
         outWorkStatus("cShelf");
+        sendStatus(TypePack.CYCLE_SHELF, engine.getCurrentTime());
     }
     // заглушка
     private void cShelf_none() {
     }
     // -----------------------------------
 
+
+    public void setFlagStopFromPc() {
+        this.flagStopFromPc = true;
+    }
+    private void sendDataWeight(long tik, int weight) {
+        int ves_adc = ((int) Math.round((weight - main.ves_offset) / main.ves_multiply)) & 0x03ff;
+        try {
+            commPort.sendDataWeight((byte) TypePack.WEIGHT, tik, ves_adc);
+        } catch (Exception exception) {
+            exception.printStackTrace();
+        }
+    }
 
     // заглушка
     private void dump_stop() { }
@@ -375,6 +391,8 @@ public class Work {
                         case Engine.PHASE_SHELF:
                             setMode(WorkMode.cycle_back);
                             break;
+                        case Engine.PHASE_PRBC:
+                            break;
                         case Engine.PHASE_BACK:
                             setMode(WorkMode.cycle_delay);
                             break;
@@ -392,13 +410,13 @@ public class Work {
 
         @Override
         public void sendCurrentData(int currentTime, double currentDistance, double weight) {
-            System.out.print("время: " + String.format("%5d", currentTime));
-            System.out.print("\tдистанция: " + String.format("%12.3f", currentDistance));
-            System.out.print("\tусилие: " + String.format("%12.3f", weight));
-            System.out.println();
+//            System.out.print("время: " + String.format("%5d", currentTime));
+//            System.out.print("\tдистанция: " + String.format("%12.3f", currentDistance));
+//            System.out.print("\tусилие: " + String.format("%12.3f", weight));
+//            System.out.println();
             // ---
-            int dist_adc = (int) Math.round((currentDistance - main.dist_offset) / main.dist_multiply);
-            int ves_adc = (int) Math.round((weight - main.ves_offset) / main.ves_multiply);
+            int dist_adc = ((int) Math.round((currentDistance - main.dist_offset) / main.dist_multiply)) & 0x03ff;
+            int ves_adc = ((int) Math.round((weight - main.ves_offset) / main.ves_multiply)) & 0x03ff;
             try {
                 commPort.sendDataMeasured((byte) TypePack.CURENT_DATA, currentTime, dist_adc, ves_adc);
             } catch (Exception exception) {
@@ -409,8 +427,6 @@ public class Work {
 
         @Override
         public double getWeight(int phase, double currentDistance, double sourceDistance, double targetDistance) {
-            double weightPusher = 20.0;
-            double force = 350.0;
             double weight, weightAcceleration;
             double subDistanceOut, subDistanceInp;
             switch (phase) {
@@ -426,12 +442,12 @@ public class Work {
                     if (subDistanceOut > distanceForce) weight = weightAcceleration;
                     else {
                         double subDist = distanceForce - subDistanceOut;
-                        double subWeight = (force + weightPusher) - weightAcceleration;
+                        double subWeight = (forcePusher + weightPusher) - weightAcceleration;
                         weight = ((subDist / distanceForce) * subWeight) + weightAcceleration;
                     }
                     break;
                 case Engine.PHASE_SHELF:
-                    weight = weightPusher + force;
+                    weight = weightPusher + forcePusher;
                     break;
                 case Engine.PHASE_PRBC:
                     subDistanceOut = Math.abs(targetDistance - currentDistance);
@@ -439,7 +455,7 @@ public class Work {
                     weightAcceleration = (g_dn / g_std) * weightPusher;
                     if (subDistanceInp < distanceForce) {
                         double subDist = distanceForce - subDistanceInp;
-                        double subWeight = (force + weightPusher) - weightAcceleration;
+                        double subWeight = (forcePusher + weightPusher) - weightAcceleration;
                         weight = ((subDist / distanceForce) * subWeight) + weightAcceleration;
                     } else  if (subDistanceOut < distanceForce) {
                         double subDist = distanceForce - subDistanceOut;
