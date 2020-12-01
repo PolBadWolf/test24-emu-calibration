@@ -51,4 +51,6 @@ public interface CommPort {
     boolean ReciveStart();
     void ReciveStop();
     void sendDataMeasured(byte sendCode, long tik, int distance, int weight) throws Exception;
+    void sendStatus(int code, int tik) throws Exception;
+    void sendDataWeight(byte sendCode, long tik, int weight) throws Exception;
 }

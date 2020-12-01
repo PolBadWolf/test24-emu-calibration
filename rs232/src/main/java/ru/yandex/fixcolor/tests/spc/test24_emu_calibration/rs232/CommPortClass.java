@@ -55,7 +55,7 @@ class CommPortClass implements CommPort {
         port = SerialPort.getCommPort(portNameCase);
         port.setComPortParameters(baud.getBaud(), 8, SerialPort.ONE_STOP_BIT, SerialPort.NO_PARITY);
         port.setFlowControl(SerialPort.FLOW_CONTROL_DISABLED);
-        port.setComPortTimeouts(SerialPort.TIMEOUT_NONBLOCKING, 1, 10);
+        port.setComPortTimeouts(SerialPort.TIMEOUT_NONBLOCKING, 1, 0);
 
         if (port.openPort()) {
             this.callBack = callBack;
@@ -232,5 +232,36 @@ class CommPortClass implements CommPort {
         cs[0] = ControlSumma.crc8(sendDataMeasuredBody, sendDataMeasuredBody.length);
         int l = port.writeBytes(cs, cs.length);
         if (l < cs.length) throw new Exception("ошибка отправки по comm port");
+    }
+    private final byte[] sendDataStatusBody = new byte[5];
+    @Override
+    public void sendStatus(int code, int tik) throws Exception {
+        sendDataStatusBody[0] = (byte) code;
+        // tik (4)
+        ConvertDigit.int2bytes(tik, sendDataStatusBody, 1);
+        send_header();
+        send_lenght(sendDataStatusBody);
+        port.writeBytes(sendDataStatusBody, sendDataStatusBody.length);
+        // контрольная сумма
+        byte[] cs = new byte[1];
+        cs[0] = ControlSumma.crc8(sendDataStatusBody, sendDataStatusBody.length);
+        port.writeBytes(cs, cs.length);
+    }
+    private final byte[] sendDataWeightBody = new byte[7];
+
+    @Override
+    public void sendDataWeight(byte code, long tik, int weight) throws Exception {
+        sendDataWeightBody[0] = (byte) code;
+        // tik (4)
+        ConvertDigit.int2bytes(tik, sendDataWeightBody, 1);
+        // weight
+        ConvertDigit.int2bytes(weight, sendDataWeightBody, 5, 2);
+        send_header();
+        send_lenght(sendDataWeightBody);
+        port.writeBytes(sendDataWeightBody, sendDataWeightBody.length);
+        // контрольная сумма
+        byte[] cs = new byte[1];
+        cs[0] = ControlSumma.crc8(sendDataWeightBody, sendDataWeightBody.length);
+        port.writeBytes(cs, cs.length);
     }
 }
